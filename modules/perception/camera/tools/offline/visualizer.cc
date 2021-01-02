@@ -111,8 +111,8 @@ bool Visualizer::Init(const std::vector<std::string> &camera_names,
 bool Visualizer::Init_all_info_single_camera(
     const std::vector<std::string> &camera_names,
     const std::string &visual_camera,
-    const std::map<std::string, Eigen::Matrix3f> &intrinsic_map,
-    const std::map<std::string, Eigen::Matrix4d> &extrinsic_map,
+    const EigenMap<std::string, Eigen::Matrix3f> &intrinsic_map,
+    const EigenMap<std::string, Eigen::Matrix4d> &extrinsic_map,
     const Eigen::Matrix4d &ex_lidar2imu, const double pitch_adj_degree,
     const double yaw_adj_degree, const double roll_adj_degree,
     const int image_height, const int image_width) {
@@ -1096,6 +1096,8 @@ void Visualizer::Draw2Dand3D_all_info_single_camera(
   for (const auto &object : frame.tracked_objects) {
     // plot 2D box on image_2D
     base::RectF rect(object->camera_supplement.box);
+    AINFO << "Draw box xmin: " << object->camera_supplement.box.xmin;
+    AINFO << "Draw box ymin: " << object->camera_supplement.box.ymin;
     cv::Rect r(static_cast<int>(rect.x), static_cast<int>(rect.y),
                static_cast<int>(rect.width), static_cast<int>(rect.height));
     cv::Scalar color = colorlistobj[object->track_id % colorlistobj.size()];
@@ -1369,7 +1371,9 @@ void Visualizer::ShowResult_all_info_single_camera(
   if (frame.timestamp - last_timestamp_ < 0.02) return;
 
   world_image_ = cv::Mat(world_h_, wide_pixel_, CV_8UC3, black_color);
-
+  if (frame.data_provider->sensor_name() == "front_6mm") {
+    cv::imwrite("./test.png", img);
+  }
   // draw results on visulization panel
   int line_pos = 0;
   cv::Mat image = img.clone();
@@ -1459,12 +1463,12 @@ void Visualizer::ShowResult_all_info_single_camera(
             bigimg(cv::Rect(0, small_h_, small_w_, small_h_)));
         world_image_.copyTo(
             bigimg(cv::Rect(small_w_, 0, wide_pixel_, world_h_)));
-        cv::namedWindow("Apollo Visualizer", CV_WINDOW_NORMAL);
-        cv::setWindowProperty("Apollo Visualizer", CV_WND_PROP_FULLSCREEN,
-                              CV_WINDOW_FULLSCREEN);
-        cv::imshow("Apollo Visualizer", bigimg);
-        int key = cvWaitKey(30);
-        key_handler(camera_name, key);
+        // cv::namedWindow("Apollo Visualizer", CV_WINDOW_NORMAL);
+        // cv::setWindowProperty("Apollo Visualizer", CV_WND_PROP_FULLSCREEN,
+        //                       CV_WINDOW_FULLSCREEN);
+        // cv::imshow("Apollo Visualizer", bigimg);
+        // int key = cvWaitKey(30);
+        // key_handler(camera_name, key);
 
         // output visualization panel
         if (write_out_img_) {

@@ -20,6 +20,7 @@
 #include <utility>
 
 #include "absl/strings/str_cat.h"
+
 #include "cyber/common/log.h"
 #include "modules/perception/inference/tensorrt/plugins/argmax_plugin.h"
 #include "modules/perception/inference/tensorrt/plugins/leakyReLU_plugin.h"
@@ -188,6 +189,9 @@ void RTNet::addConcatLayer(const LayerParameter &layer_param,
   ConcatParameter concat = layer_param.concat_param();
   nvinfer1::IConcatenationLayer *concatLayer =
       net->addConcatenation(inputs, nbInputs);
+  // tensorrt ignore the first channel(batch channel), so when load caffe
+  // model axis should -1
+  concatLayer->setAxis(concat.axis()-1);
   concatLayer->setName(layer_param.name().c_str());
   CHECK_EQ(nbInputs, layer_param.bottom_size());
 
@@ -368,14 +372,18 @@ void RTNet::addPermuteLayer(const LayerParameter &layer_param,
                             nvinfer1::INetworkDefinition *net,
                             TensorMap *tensor_map,
                             TensorModifyMap *tensor_modify_map) {
-  nvinfer1::IPluginLayer *permuteLayer;
-  nvinfer1::plugin::Quadruple permuteOrder;
-  CHECK_EQ(layer_param.permute_param().order_size(), 4);
-  for (int i = 0; i < 4; i++) {
-    permuteOrder.data[i] = layer_param.permute_param().order(i);
+  CHECK_LE(layer_param.permute_param().order_size(), nvinfer1::Dims::MAX_DIMS);
+  nvinfer1::IShuffleLayer *permuteLayer = net->addShuffle(*inputs[0]);
+  nvinfer1::Permutation permutation;
+
+  // For loading Caffe's permute param,
+  // e.g. Caffe: [0, 2, 1, 3] -> TensorRT: [1, 0, 2], omitting 1st dim N.
+  ACHECK(layer_param.permute_param().order(0) == 0);
+  for (int i = 1; i < layer_param.permute_param().order_size(); ++i) {
+    int order = layer_param.permute_param().order(i);
+    permutation.order[i - 1] = order - 1;
   }
-  nvinfer1::IPlugin *mplugin = createSSDPermutePlugin(permuteOrder);
-  permuteLayer = net->addPlugin(inputs, nbInputs, *mplugin);
+  permuteLayer->setFirstTranspose(permutation);
 
   permuteLayer->setName(layer_param.name().c_str());
   ConstructMap(layer_param, permuteLayer, tensor_map, tensor_modify_map);
@@ -602,7 +610,7 @@ void RTNet::init_blob(std::vector<std::string> *names) {
   for (auto name : *names) {
     int bindingIndex =
         engine->getBindingIndex(tensor_modify_map_[name].c_str());
-    CHECK_LT(bindingIndex, buffers_.size());
+    CHECK_LT(static_cast<size_t>(bindingIndex), buffers_.size());
     CHECK_GE(bindingIndex, 0);
     nvinfer1::DimsCHW dims = static_cast<nvinfer1::DimsCHW &&>(
         engine->getBindingDimensions(bindingIndex));
@@ -710,7 +718,7 @@ void RTNet::parse_with_api(
              &weight_map_, network_, &tensor_map, &tensor_modify_map_);
   }
 
-  CHECK_NE(output_names_.size(), 0);
+  CHECK_NE(output_names_.size(), static_cast<size_t>(0));
   std::sort(output_names_.begin(), output_names_.end());
   auto last = std::unique(output_names_.begin(), output_names_.end());
   output_names_.erase(last, output_names_.end());
